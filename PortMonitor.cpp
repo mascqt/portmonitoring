@@ -30,16 +30,12 @@ void PortMonitor::Display() {
 }
 
 void PortMonitor::TCP() {
-    // ==================== بخش اول: پورت‌های TCP ====================
     ULONG tcpSize = 0;
-    //GetTcpTable(nullptr, &tcpSize, FALSE); // گرفتن سایز بافر
     GetExtendedTcpTable(nullptr, &tcpSize, FALSE, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0);
 
     std::vector<BYTE> tcpBuffer(tcpSize);
-    //PMIB_TCPTABLE tcpTable = reinterpret_cast<PMIB_TCPTABLE>(tcpBuffer.data());
     PMIB_TCPTABLE_OWNER_PID tcpTable = reinterpret_cast<PMIB_TCPTABLE_OWNER_PID>(tcpBuffer.data());
 
-    // تنظیم فرمت چاپ برای مرتب بودن ستون‌ها در کنسول CLion
     std::cout << std::left;
     std::cout << "=====================================================================\n";
     std::cout << " [TCP Ports Table]\n";
@@ -76,7 +72,6 @@ void PortMonitor::TCP() {
     std::cout << "\n\n";
 }
 
-// تابعی برای تبدیل وضعیت پورت‌های TCP به متن خوانا
 std::string PortMonitor::GetTcpStateString(DWORD state) {
     switch (state) {
         case MIB_TCP_STATE_CLOSED:     return "CLOSED";
@@ -95,43 +90,36 @@ std::string PortMonitor::GetTcpStateString(DWORD state) {
 }
 
 std::string PortMonitor::GetProcessName(DWORD processId) {
-    // اگر فرآیند سیستم (PID 0) بود، اسمش رو دستی می‌نویسیم
     if (processId == 0) return "System Idle Process";
     if (processId == 4) return "System";
 
     std::string processName = "Unknown";
 
-    // گرفتن یک عکس (Snapshot) از تمام فرآیندهای در حال اجرای سیستم
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot != INVALID_HANDLE_VALUE) {
         PROCESSENTRY32 pe32;
         pe32.dwSize = sizeof(PROCESSENTRY32);
 
-        // چرخیدن در بین فرآیندها برای پیدا کردن PID هم‌نام
         if (Process32First(hSnapshot, &pe32)) {
             do {
                 if (pe32.th32ProcessID == processId) {
-                    processName = pe32.szExeFile; // اسم فایل اجرایی (مثلا chrome.exe)
+                    processName = pe32.szExeFile;
                     break;
                 }
             } while (Process32Next(hSnapshot, &pe32));
         }
-        CloseHandle(hSnapshot); // بستن کپچر برای آزاد شدن حافظه
+        CloseHandle(hSnapshot);
     }
     return processName;
 }
 
 void PortMonitor::UDP() {
-    // ==================== بخش دوم: پورت‌های UDP ====================
     ULONG udpSize = 0;
-    //GetUdpTable(nullptr, &udpSize, FALSE); // گرفتن سایز بافر
     GetExtendedUdpTable(nullptr, &udpSize, FALSE, AF_INET, UDP_TABLE_OWNER_PID, 0);
 
     std::vector<BYTE> udpBuffer(udpSize);
-    //PMIB_UDPTABLE udpTable = reinterpret_cast<PMIB_UDPTABLE>(udpBuffer.data());
     PMIB_UDPTABLE_OWNER_PID udpTable = reinterpret_cast<PMIB_UDPTABLE_OWNER_PID>(udpBuffer.data());
 
-    // تنظیم فرمت چاپ برای مرتب بودن ستون‌ها در کنسول CLion
     std::cout << std::left;
     std::cout << "=====================================================================\n";
     std::cout << " [UDP Ports Table (No State)]\n";
