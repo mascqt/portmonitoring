@@ -8,5 +8,5 @@ add_executable(PortMonitoring main.cpp
         PortMonitor.h)
 
 if(WIN32)
-    target_link_libraries(PortMonitoring ws2_32 iphlpapi)
+    target_link_libraries(PortMonitoring ws2_32 iphlpapi version)
 endif()
