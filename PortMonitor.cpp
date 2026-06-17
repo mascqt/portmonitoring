@@ -13,23 +13,38 @@ PortMonitor::PortMonitor(const int& numberOfProtocol) : m_NumberOfProtocol(numbe
 PortMonitor::~PortMonitor() = default;
 
 void PortMonitor::Display() {
+    std::map<DWORD, std::pair<std::string, std::string>> processMap;
+
+    HANDLE hSnapShot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnapShot != INVALID_HANDLE_VALUE) {
+        PROCESSENTRY32 pe32;
+        pe32.dwSize = sizeof(PROCESSENTRY32);
+        if (Process32First(hSnapShot, &pe32)) {
+            do {
+                std::string userName = GetProcessUsername(pe32.th32ProcessID);
+                processMap[pe32.th32ProcessID] = std::make_pair(pe32.szExeFile, userName);
+            } while (Process32Next(hSnapShot, &pe32));
+        }
+        CloseHandle(hSnapShot);
+    }
+
     switch (m_NumberOfProtocol) {
         case 1:
-            TCP();
+            TCP(processMap);
             break;
         case 2:
-            UDP();
+            UDP(processMap);
             break;
         case 3:
-            TCP();
-            UDP();
+            TCP(processMap);
+            UDP(processMap);
             break;
         default:
             std::cout << "Invalid selection. Please select a valid protocol number." << std::endl;
     }
 }
 
-void PortMonitor::TCP() {
+void PortMonitor::TCP(const std::map<DWORD, std::pair<std::string, std::string>>& processMap) {
     ULONG tcpSize = 0;
     GetExtendedTcpTable(nullptr, &tcpSize, FALSE, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0);
 
@@ -48,19 +63,19 @@ void PortMonitor::TCP() {
     if (GetExtendedTcpTable(tcpTable, &tcpSize, FALSE, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0) == NO_ERROR) {
         for (DWORD i = 0; i < tcpTable->dwNumEntries; i++) {
             MIB_TCPROW_OWNER_PID row = tcpTable->table[i];
-            USHORT localPort = ntohs((USHORT)row.dwLocalPort);
+            USHORT localPort = ntohs(static_cast<USHORT>(row.dwLocalPort));
 
             IN_ADDR localAddr;
             localAddr.S_un.S_addr = row.dwLocalAddr;
             char ipStr[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &localAddr, ipStr, INET_ADDRSTRLEN);
 
-            std::string companyName, username;
-            std::string appName = GetProcessName(row.dwOwningPid, companyName, username);
+            std::string companyName, userName;
+            std::string appName = GetProcessName(row.dwOwningPid, processMap, companyName, userName);
 
             std::cout << std::setw(10) << "TCP" << std::setw(18) << ipStr << std::setw(10) << localPort
                       << std::setw(22) << GetTcpStateString(row.dwState) << std::setw(8) << row.dwOwningPid
-                      << std::setw(25) << appName << std::setw(25) << companyName << username << std::endl;
+                      << std::setw(25) << appName << std::setw(25) << companyName << userName << std::endl;
         }
     }
     std::cout << "\n\n";
@@ -83,28 +98,27 @@ std::string PortMonitor::GetTcpStateString(DWORD state) {
     }
 }
 
-std::string PortMonitor::GetProcessName(DWORD processId, std::string& companyName, std::string& username) {
-    username = GetProcessUsername(processId);
+std::string PortMonitor::GetProcessName(DWORD processId,const std::map<DWORD, std::pair<std::string, std::string>>& processMap, std::string& companyName, std::string& userName) {
+    if (processId == 0) {
+        companyName = "Microsoft";
+        userName = "NT AUTHORITY\\SYSTEM";
+        return "System Idle Process";
+    }
 
-    if (processId == 0) { companyName = "Microsoft"; return "System Idle Process"; }
-    if (processId == 4) { companyName = "Microsoft"; return "System"; }
+    if (processId == 4) {
+        companyName = "Microsoft";
+        userName = "NT AUTHORITY\\SYSTEM";
+        return "System";
+    }
 
     std::string fileName = "Unknown Process";
+    userName = "Unknown User";
     companyName = "Unknown Company";
 
-    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hSnapshot != INVALID_HANDLE_VALUE) {
-        PROCESSENTRY32 pe32;
-        pe32.dwSize = sizeof(PROCESSENTRY32);
-        if (Process32First(hSnapshot, &pe32)) {
-            do {
-                if (pe32.th32ProcessID == processId) {
-                    fileName = pe32.szExeFile;
-                    break;
-                }
-            } while (Process32Next(hSnapshot, &pe32));
-        }
-        CloseHandle(hSnapshot);
+    auto it = processMap.find(processId);
+    if (it != processMap.end()) {
+        fileName = it->second.first;
+        userName = it->second.second;
     }
 
     std::string exePath = GetProcessPath(processId);
@@ -180,12 +194,12 @@ std::string PortMonitor::GetCompanyNameFromExe(const std::string &exePath) {
     if (VerQueryValueA(buffer.data(), "\\VarFileInfo\\Translation", (LPVOID*)&lpTranslate, &cbTranslate)) {
         char subBlock[256];
 
-        sprintf_s(subBlock, "\\StringFileInfo\\%04x%04x\\CompanyName", lpTranslate[0].wLanguage, lpTranslate[0].wCodePage);
+        sprintf_s(subBlock, R"(\StringFileInfo\%04x%04x\CompanyName)", lpTranslate[0].wLanguage, lpTranslate[0].wCodePage);
 
         char* companyName = nullptr;
         UINT length = 0;
         if (VerQueryValueA(buffer.data(), subBlock, (LPVOID*)&companyName, &length) && length > 0) {
-            return std::string(companyName);
+            return companyName;
         }
     }
     return "";
@@ -225,7 +239,7 @@ std::string PortMonitor::GetProcessUsername(DWORD processId) {
     return username;
 }
 
-void PortMonitor::UDP() {
+void PortMonitor::UDP(const std::map<DWORD, std::pair<std::string, std::string>>& processMap) {
     ULONG udpSize = 0;
     GetExtendedUdpTable(nullptr, &udpSize, FALSE, AF_INET, UDP_TABLE_OWNER_PID, 0);
 
@@ -252,7 +266,7 @@ void PortMonitor::UDP() {
             inet_ntop(AF_INET, &localAddr, ipStr, INET_ADDRSTRLEN);
 
             std::string companyName, username;
-            std::string appName = GetProcessName(row.dwOwningPid, companyName, username);
+            std::string appName = GetProcessName(row.dwOwningPid, processMap, companyName, username);
 
             std::cout << std::setw(10) << "UDP" << std::setw(18) << ipStr << std::setw(10) << localPort
                       << std::setw(8) << row.dwOwningPid
